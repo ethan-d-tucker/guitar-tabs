@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Guitar Tabs",
+    "slug": "guitar-tabs",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "guitar-tabs",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "name": "Guitar Tabs",
+      "shortName": "Guitar Tabs",
+      "description": "Manage guitar chord sheets and tablature",
+      "lang": "en",
+      "themeColor": "#1a1a2e"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
