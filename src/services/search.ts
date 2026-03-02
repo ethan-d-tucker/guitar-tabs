@@ -1,14 +1,9 @@
-import { Platform } from 'react-native';
 import { fetchUGPage, extractJsStoreData } from './scraper';
 import type { SearchResult } from '../models/Song';
 
 const ALLOWED_TYPES = new Set(['Chords', 'Tab', 'Tabs', 'Ukulele Chords', 'Bass Tabs']);
 
 export async function searchUltimateGuitar(query: string): Promise<SearchResult[]> {
-  if (Platform.OS === 'web') {
-    throw new Error('Search is only available in the mobile app. On web, use the "From URL" tab to import songs.');
-  }
-
   const searchUrl = `https://www.ultimate-guitar.com/search.php?search_type=title&value=${encodeURIComponent(query)}`;
 
   let html: string;

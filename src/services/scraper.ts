@@ -16,7 +16,7 @@ export function decodeHtmlEntities(text: string): string {
 
 export async function fetchUGPage(url: string, options?: { desktop?: boolean }): Promise<string> {
   const fetchUrl = Platform.OS === 'web'
-    ? `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    ? `/api/ug-proxy?url=${encodeURIComponent(url)}`
     : url;
 
   const userAgent = options?.desktop
