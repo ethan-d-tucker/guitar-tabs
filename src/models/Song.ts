@@ -45,3 +45,12 @@ export interface SetlistSong {
   songId: number;
   sortOrder: number;
 }
+
+export interface SearchResult {
+  title: string;
+  artist: string;
+  url: string;
+  type: string;
+  rating: number;
+  votes: number;
+}

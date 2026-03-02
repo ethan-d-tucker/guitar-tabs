@@ -37,18 +37,45 @@ export function parseContent(rawContent: string): SongLine[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Check for [tab] blocks
-    if (line.trim() === '[tab]') {
+    // Check for [tab] blocks (handles inline tags like `[tab]content` or `content[/tab]`)
+    if (line.trim().startsWith('[tab]')) {
       const tabLines: string[] = [];
+      const afterTag = line.trim().slice('[tab]'.length);
+
+      // Single-line: [tab]content[/tab]
+      if (afterTag.includes('[/tab]')) {
+        const content = afterTag.replace('[/tab]', '').trimEnd();
+        if (content) tabLines.push(content);
+        if (tabLines.length > 0) {
+          result.push({ type: 'tab', lines: tabLines });
+        }
+        i++;
+        continue;
+      }
+
+      // Content after [tab] on opening line
+      if (afterTag.trim()) tabLines.push(afterTag);
       i++;
-      while (i < lines.length && lines[i].trim() !== '[/tab]') {
-        tabLines.push(lines[i]);
+
+      // Collect lines until [/tab]
+      while (i < lines.length) {
+        const cur = lines[i];
+        if (cur.trim() === '[/tab]') {
+          i++;
+          break;
+        }
+        if (cur.includes('[/tab]')) {
+          const before = cur.replace('[/tab]', '').trimEnd();
+          if (before.trim()) tabLines.push(before);
+          i++;
+          break;
+        }
+        tabLines.push(cur.replace(/\[tab\]/g, '').replace(/\[\/tab\]/g, ''));
         i++;
       }
       if (tabLines.length > 0) {
         result.push({ type: 'tab', lines: tabLines });
       }
-      i++; // skip [/tab]
       continue;
     }
 
@@ -88,7 +115,8 @@ export function parseContent(rawContent: string): SongLine[] {
       const nextIsEmpty = nextLine.trim() === '';
       const nextIsSection = SECTION_REGEX.test(nextLine.trim());
 
-      if (!nextHasChords && !nextIsEmpty && !nextIsSection && nextLine.trim() !== '[tab]') {
+      const nextIsTab = nextLine.trim().startsWith('[tab]');
+      if (!nextHasChords && !nextIsEmpty && !nextIsSection && !nextIsTab) {
         // Pair chord line with lyric line
         result.push({
           type: 'chord-lyric',

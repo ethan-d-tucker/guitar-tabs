@@ -9,29 +9,69 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  FlatList,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Colors, Spacing, FontSize } from '../src/constants/theme';
 import { isValidUGUrl } from '../src/utils/url-validator';
 import { scrapeUltimateGuitar } from '../src/services/scraper';
+import { searchUltimateGuitar } from '../src/services/search';
 import { addSong, addSongToSetlist } from '../src/db/songs';
 import SongPreview from '../src/components/SongPreview';
-import type { ScrapedSong } from '../src/models/Song';
+import SearchResultCard from '../src/components/SearchResultCard';
+import type { ScrapedSong, SearchResult } from '../src/models/Song';
 
-type Mode = 'url' | 'manual';
+type Mode = 'search' | 'url' | 'manual';
+
+interface GroupedResult {
+  title: string;
+  artist: string;
+  bestRating: number;
+  totalVotes: number;
+  versions: SearchResult[];
+}
+
+function groupSearchResults(results: SearchResult[]): GroupedResult[] {
+  const groups = new Map<string, GroupedResult>();
+  for (const r of results) {
+    const key = `${r.artist.toLowerCase()}|${r.title.toLowerCase()}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.versions.push(r);
+      if (r.rating > existing.bestRating) existing.bestRating = r.rating;
+      existing.totalVotes += r.votes;
+    } else {
+      groups.set(key, {
+        title: r.title,
+        artist: r.artist,
+        bestRating: r.rating,
+        totalVotes: r.votes,
+        versions: [r],
+      });
+    }
+  }
+  return [...groups.values()].sort((a, b) => b.bestRating - a.bestRating);
+}
 
 export default function AddSongScreen() {
   const router = useRouter();
   const { setlistId } = useLocalSearchParams<{ setlistId?: string }>();
-  const [mode, setMode] = useState<Mode>('url');
+  const [mode, setMode] = useState<Mode>('search');
   const [url, setUrl] = useState('');
   const [manualContent, setManualContent] = useState('');
   const [manualTitle, setManualTitle] = useState('');
   const [manualArtist, setManualArtist] = useState('');
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<ScrapedSong | null>(null);
+  const [selectedUrl, setSelectedUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<GroupedResult | null>(null);
 
   async function handlePasteFromClipboard() {
     try {
@@ -41,6 +81,47 @@ export default function AddSongScreen() {
       }
     } catch {
       // Clipboard access denied (common on web), ignore silently
+    }
+  }
+
+  async function handleSearch() {
+    const trimmed = searchQuery.trim();
+    setError(null);
+    setPreview(null);
+    setSearchResults([]);
+    setSelectedGroup(null);
+
+    if (!trimmed) {
+      setError('Please enter a song name or artist.');
+      return;
+    }
+
+    setSearchLoading(true);
+    try {
+      const results = await searchUltimateGuitar(trimmed);
+      if (results.length === 0) {
+        setError('No results found. Try a different search or use the URL/manual tab.');
+      }
+      setSearchResults(results);
+    } catch (err: any) {
+      setError(err.message || 'Search failed. Try using the URL or manual paste tab.');
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  async function handleSelectResult(result: SearchResult) {
+    setError(null);
+    setPreview(null);
+    setSelectedUrl(result.url);
+    setLoading(true);
+    try {
+      const data = await scrapeUltimateGuitar(result.url);
+      setPreview(data);
+    } catch (err: any) {
+      setError(err.message || 'Could not fetch tab data. Try pasting content manually.');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -58,6 +139,7 @@ export default function AddSongScreen() {
       return;
     }
 
+    setSelectedUrl(trimmed);
     setLoading(true);
     try {
       const data = await scrapeUltimateGuitar(trimmed);
@@ -73,12 +155,12 @@ export default function AddSongScreen() {
     setError(null);
     let newSongId: number | null = null;
 
-    if (mode === 'url' && preview) {
+    if ((mode === 'url' || mode === 'search') && preview) {
       newSongId = await addSong({
         title: preview.title,
         artist: preview.artist,
         type: preview.type as any,
-        sourceUrl: url.trim(),
+        sourceUrl: selectedUrl || null,
         rawContent: preview.rawContent,
         capo: preview.capo,
         tuning: preview.tuning,
@@ -108,6 +190,13 @@ export default function AddSongScreen() {
     }
   }
 
+  function switchMode(newMode: Mode) {
+    setMode(newMode);
+    setError(null);
+    setPreview(null);
+    setSelectedGroup(null);
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -117,8 +206,16 @@ export default function AddSongScreen() {
         {/* Mode Toggle */}
         <View style={styles.modeToggle}>
           <TouchableOpacity
+            style={[styles.modeButton, mode === 'search' && styles.modeButtonActive]}
+            onPress={() => switchMode('search')}
+          >
+            <Text style={[styles.modeButtonText, mode === 'search' && styles.modeButtonTextActive]}>
+              Search
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.modeButton, mode === 'url' && styles.modeButtonActive]}
-            onPress={() => { setMode('url'); setError(null); }}
+            onPress={() => switchMode('url')}
           >
             <Text style={[styles.modeButtonText, mode === 'url' && styles.modeButtonTextActive]}>
               From URL
@@ -126,10 +223,10 @@ export default function AddSongScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.modeButton, mode === 'manual' && styles.modeButtonActive]}
-            onPress={() => { setMode('manual'); setError(null); }}
+            onPress={() => switchMode('manual')}
           >
             <Text style={[styles.modeButtonText, mode === 'manual' && styles.modeButtonTextActive]}>
-              Paste Manually
+              Manual
             </Text>
           </TouchableOpacity>
         </View>
@@ -141,7 +238,126 @@ export default function AddSongScreen() {
           </View>
         )}
 
-        {mode === 'url' ? (
+        {mode === 'search' ? (
+          <>
+            {/* Search Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Search Ultimate Guitar</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Song name, artist..."
+                placeholderTextColor={Colors.textMuted}
+                value={searchQuery}
+                onChangeText={(t) => { setSearchQuery(t); setError(null); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                onSubmitEditing={handleSearch}
+              />
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { flex: 1 }, searchLoading && styles.buttonDisabled]}
+                  onPress={handleSearch}
+                  disabled={searchLoading}
+                >
+                  {searchLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Search</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Search Results — grouped by song */}
+            {searchResults.length > 0 && !preview && !selectedGroup && (
+              <View style={styles.resultsContainer}>
+                {(() => {
+                  const groups = groupSearchResults(searchResults);
+                  return (
+                    <>
+                      <Text style={styles.resultsLabel}>
+                        {groups.length} song{groups.length !== 1 ? 's' : ''} found
+                      </Text>
+                      {groups.map((group, index) => (
+                        <SearchResultCard
+                          key={`${group.artist}-${group.title}-${index}`}
+                          result={{
+                            title: group.title,
+                            artist: group.artist,
+                            url: '',
+                            type: group.versions.length === 1 ? group.versions[0].type : `${group.versions.length} versions`,
+                            rating: group.bestRating,
+                            votes: group.totalVotes,
+                          }}
+                          onPress={() => {
+                            if (group.versions.length === 1) {
+                              handleSelectResult(group.versions[0]);
+                            } else {
+                              setSelectedGroup(group);
+                            }
+                          }}
+                        />
+                      ))}
+                    </>
+                  );
+                })()}
+              </View>
+            )}
+
+            {/* Version picker */}
+            {selectedGroup && !preview && !loading && (
+              <View style={styles.resultsContainer}>
+                <TouchableOpacity onPress={() => setSelectedGroup(null)}>
+                  <Text style={styles.backLink}>← Back to results</Text>
+                </TouchableOpacity>
+                <Text style={styles.versionTitle}>{selectedGroup.title}</Text>
+                <Text style={styles.versionArtist}>{selectedGroup.artist}</Text>
+                <Text style={styles.resultsLabel}>
+                  {selectedGroup.versions.length} version{selectedGroup.versions.length !== 1 ? 's' : ''}
+                </Text>
+                {selectedGroup.versions
+                  .sort((a, b) => b.rating - a.rating)
+                  .map((version, index) => (
+                    <SearchResultCard
+                      key={`${version.url}-${index}`}
+                      result={version}
+                      onPress={() => handleSelectResult(version)}
+                    />
+                  ))}
+              </View>
+            )}
+
+            {/* Loading selected result */}
+            {loading && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color={Colors.primary} size="large" />
+                <Text style={styles.loadingText}>Loading tab...</Text>
+              </View>
+            )}
+
+            {/* Preview from search result */}
+            {preview && (
+              <View style={styles.previewContainer}>
+                <TouchableOpacity onPress={() => setPreview(null)}>
+                  <Text style={styles.backLink}>
+                    ← Back to {selectedGroup ? 'versions' : 'results'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={styles.previewHeader}>
+                  <Text style={styles.previewTitle}>{preview.title}</Text>
+                  <Text style={styles.previewArtist}>{preview.artist}</Text>
+                </View>
+                <View style={styles.previewContent}>
+                  <SongPreview rawContent={preview.rawContent} />
+                </View>
+                <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                  <Text style={styles.saveButtonText}>Add Song</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        ) : mode === 'url' ? (
           <>
             {/* URL Input */}
             <View style={styles.inputGroup}>
@@ -342,6 +558,41 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  resultsContainer: {
+    marginTop: Spacing.xs,
+  },
+  resultsLabel: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: Spacing.sm,
+  },
+  versionTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  versionArtist: {
+    fontSize: FontSize.md,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    marginBottom: Spacing.md,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
+  },
+  loadingText: {
+    marginTop: Spacing.sm,
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  backLink: {
+    fontSize: FontSize.sm,
+    color: Colors.primary,
+    fontWeight: '600',
+    marginBottom: Spacing.sm,
   },
   previewContainer: {
     marginTop: Spacing.md,

@@ -55,7 +55,7 @@ function renderLine(
         <Text style={styles.section}>{line.name}</Text>
       );
       return (
-        <View key={key}>
+        <View key={key} style={styles.sectionContainer}>
           {onAnnotationPress ? (
             <TouchableOpacity onPress={() => onAnnotationPress(line.name)} activeOpacity={0.6}>
               {sectionHeader}
@@ -107,26 +107,33 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     backgroundColor: Colors.background,
   },
+  sectionContainer: {
+    marginTop: Spacing.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.sm,
+  },
   section: {
     fontSize: FontSize.sm,
     fontWeight: '700',
-    color: Colors.textSecondary,
-    marginTop: Spacing.md,
+    color: Colors.primary,
     marginBottom: Spacing.xs,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
   },
   chordLine: {
     fontFamily: 'monospace',
     fontSize: 14,
     fontWeight: 'bold',
     color: Colors.chordColor,
+    lineHeight: 18,
   },
   lyricLine: {
     fontFamily: 'monospace',
     fontSize: 14,
     color: Colors.text,
-    marginBottom: 2,
+    marginBottom: 4,
+    lineHeight: 20,
   },
   tabBlock: {
     backgroundColor: Colors.tabBackground,
@@ -139,7 +146,8 @@ const styles = StyleSheet.create({
   tabText: {
     fontFamily: 'monospace',
     fontSize: 12,
-    color: Colors.text,
+    color: Colors.textSecondary,
+    lineHeight: 16,
   },
   emptyLine: {
     height: 10,

@@ -1,7 +1,9 @@
 import { Platform } from 'react-native';
 import type { ScrapedSong } from '../models/Song';
 
-function decodeHtmlEntities(text: string): string {
+// ─── Shared helpers (used by scraper + search) ───
+
+export function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -12,17 +14,18 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)));
 }
 
-export async function scrapeUltimateGuitar(url: string): Promise<ScrapedSong> {
-  // On web, browsers block cross-origin requests (CORS).
-  // Use a CORS proxy to fetch the page.
+export async function fetchUGPage(url: string, options?: { desktop?: boolean }): Promise<string> {
   const fetchUrl = Platform.OS === 'web'
     ? `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
     : url;
 
+  const userAgent = options?.desktop
+    ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    : 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
   const response = await fetch(fetchUrl, {
     headers: Platform.OS === 'web' ? {} : {
-      'User-Agent':
-        'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'User-Agent': userAgent,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
     },
@@ -32,25 +35,32 @@ export async function scrapeUltimateGuitar(url: string): Promise<ScrapedSong> {
     throw new Error(`Failed to fetch page (${response.status}). Try pasting the content manually.`);
   }
 
-  const html = await response.text();
+  return response.text();
+}
+
+export function extractJsStoreData(html: string): any {
+  const match = html.match(/class="js-store"[^>]*data-content="([^"]+)"/);
+  const jsStoreData = match ? decodeHtmlEntities(match[1]) : null;
+  if (!jsStoreData) {
+    throw new Error('Could not find data on this page.');
+  }
+
+  try {
+    return JSON.parse(jsStoreData);
+  } catch {
+    throw new Error('Failed to parse page data.');
+  }
+}
+
+// ─── Tab scraper ───
+
+export async function scrapeUltimateGuitar(url: string): Promise<ScrapedSong> {
+  const html = await fetchUGPage(url);
   return parseUGHtml(html);
 }
 
 export function parseUGHtml(html: string): ScrapedSong {
-  // UG stores tab data in a div.js-store data-content attribute as JSON.
-  // Extract the data-content attribute from the .js-store element using regex.
-  const match = html.match(/class="js-store"[^>]*data-content="([^"]+)"/);
-  const jsStoreData = match ? decodeHtmlEntities(match[1]) : null;
-  if (!jsStoreData) {
-    throw new Error('Could not find tab data on this page. Try pasting the content manually.');
-  }
-
-  let store: any;
-  try {
-    store = JSON.parse(jsStoreData);
-  } catch {
-    throw new Error('Failed to parse tab data. Try pasting the content manually.');
-  }
+  const store = extractJsStoreData(html);
 
   const pageData = store?.store?.page?.data;
   if (!pageData) {
